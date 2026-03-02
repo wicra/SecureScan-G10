@@ -1,30 +1,30 @@
-require('dotenv').config();
+const dotenv = require("dotenv");
+const path = require("path");
 
-// GARDE FOU SI NON CONFIG - REFUS
-const REQUIRED = ['DATABASE_URL', 'JWT_SECRET'];
+// Charge le .env depuis la racine du dossier server/
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
-REQUIRED.forEach((key) => {
-  if (!process.env[key]) {
-    console.error(`Variable d'environnement manquante : ${key}`);
+const env = {
+  PORT: parseInt(process.env.PORT) || 3001,
+  NODE_ENV: process.env.NODE_ENV || "development",
+  DATABASE_URL: process.env.DATABASE_URL,
+  JWT_SECRET: process.env.JWT_SECRET,
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
+  GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "",
+  GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "",
+  GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL || "",
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
+  TMP_SCAN_DIR: process.env.TMP_SCAN_DIR || "/tmp/securescan-repos",
+};
+
+// Validation : on vérifie que les variables critiques sont présentes
+const required = ["DATABASE_URL", "JWT_SECRET"];
+for (const key of required) {
+  if (!env[key]) {
+    console.error(`❌ Variable d'environnement manquante : ${key}`);
+    console.error(`   Copiez .env.example en .env et remplissez les valeurs.`);
     process.exit(1);
   }
-});
+}
 
-module.exports = {
-  port:       process.env.PORT        || 3001,
-  nodeEnv:    process.env.NODE_ENV    || 'development',
-
-  jwt: {
-    secret:    process.env.JWT_SECRET,
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  },
-
-  github: {
-    clientId:     process.env.GITHUB_CLIENT_ID,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    callbackUrl:  process.env.GITHUB_CALLBACK_URL,
-  },
-
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  tmpScanDir:      process.env.TMP_SCAN_DIR || './tmp',
-};
+module.exports = env;
