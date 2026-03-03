@@ -23,6 +23,14 @@ const ScanModel = {
     });
   },
 
+  // Persister le langage détecté (appelé juste après la détection)
+  async updateLanguage(scanId, language) {
+    return prisma.scan.update({
+      where: { id: scanId },
+      data: { language },
+    });
+  },
+
   // Mettre à jour avec les stats du scan (sans les vulnérabilités)
   async updateStats(scanId, { score, vulnTotal, vulnCritical, vulnHigh, vulnMedium, vulnLow, secretsCount, filesTotal, filesImpacted }) {
     return prisma.scan.update({
@@ -43,22 +51,26 @@ const ScanModel = {
     });
   },
 
-  // Insérer les vulnérabilités en masse après le scan
+  // INSÉRER LES VULNÉRABILITÉS EN MASSE APRÈS LE SCAN
+  // Supporte les deux formats : mocks Dev A (finding.message/line) ET services Dev B (finding.title/lineStart)
   async insertVulnerabilities(scanId, vulnerabilities) {
+    // Helpers de troncature défensive (sécurité si la DB a des limites strictes)
+    const trunc  = (s, n) => (s && typeof s === 'string') ? s.slice(0, n) : s;
+
     const data = vulnerabilities.map((vuln) => ({
       scanId,
-      tool: vuln.finding.tool,
-      title: vuln.finding.message,
-      description: vuln.description || null,
-      severity: vuln.finding.severity,
-      owaspCategory: vuln.owaspId || null,
-      filePath: vuln.finding.filePath || null,
-      lineStart: vuln.finding.line || null,
-      lineEnd: null,
-      ruleId: vuln.finding.ruleId || null,
-      codeSnippet: vuln.codeSnippet || null,
-      fixSuggestion: vuln.suggestedFix || null,
-      cvssScore: vuln.cvssScore || null,
+      tool:          vuln.finding.tool,
+      title:         trunc(vuln.finding.title         || vuln.finding.message      || 'Vulnérabilité inconnue', 500),
+      description:   vuln.description           || vuln.finding.description  || null,  // @db.Text → pas de limite
+      severity:      vuln.finding.severity,
+      owaspCategory: trunc(vuln.owaspId               || null, 50),
+      filePath:      trunc(vuln.finding.filePath      || null, 1000),
+      lineStart:     vuln.finding.lineStart     || vuln.finding.line         || null,
+      lineEnd:       vuln.finding.lineEnd       || null,
+      ruleId:        trunc(vuln.finding.ruleId        || null, 500),
+      codeSnippet:   vuln.finding.codeSnippet   || vuln.codeSnippet          || null,
+      fixSuggestion: vuln.finding.fixSuggestion || vuln.suggestedFix         || null,
+      cvssScore:     vuln.finding.cvssScore     || vuln.cvssScore            || null,
       isFixed: false,
     }));
 
@@ -82,9 +94,9 @@ const ScanModel = {
       where: { id: scanId },
       include: {
         vulnerabilities: {
-          orderBy: [
-            { severity: "asc" }, // critical en premier (alphabétique : c < h < l < m)
-          ],
+          // TRI : cvssScore desc place les critiques en premier de façon fiable
+          // orderBy severity "asc" est alphabétique : "low" < "medium" → ordre cassé
+          orderBy: [{ cvssScore: 'desc' }, { createdAt: 'asc' }],
         },
         reports: true,
       },
