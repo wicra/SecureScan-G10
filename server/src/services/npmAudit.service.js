@@ -1,7 +1,12 @@
-const { execFileSync } = require('child_process');
-const path = require('path');
 
-// CORRESPONDANCE SÉVÉRITÉ NPM AUDIT → FORMAT INTERNE
+// IMPORTS DES MODULES DE BASE (GESTION DES CHEMINS, FICHIERS, ENV ET PROCESSUS)
+const path = require('path');
+const fs   = require('fs');
+const { toolsEnv }   = require('../config/tools');
+const { spawnAsync } = require('../utils/spawn');
+
+
+// TABLE DE CORRESPONDANCE ENTRE LES NIVEAUX NPM AUDIT ET SECURESCAN
 const SEVERITY_MAP = {
   critical: 'critical',
   high:     'high',
@@ -10,53 +15,61 @@ const SEVERITY_MAP = {
   info:     'low',
 };
 
+
+// FONCTION PRINCIPALE : LANCE L'ANALYSE NPM AUDIT SUR LE REPO
 /**
- * Exécute `npm audit` sur un repo local et retourne les vulnérabilités normalisées.
- * Cible uniquement les dépendances — pas de filePath, pas de lineStart.
- *
- * @param {string} repoPath - Chemin absolu du repo cloné
- * @returns {Array<Object>} Vulnérabilités au format standard
+ * Exécute `npm audit` sur un repo local.
+ * Async — ne bloque PAS la boucle d’événements Node.js.
  */
-function runNpmAudit(repoPath) {
+async function runNpmAudit(repoPath) {
+  // RÉCUPÈRE LE CHEMIN ABSOLU DU REPO À ANALYSER
   const absPath = path.resolve(repoPath);
 
-  let raw;
-  try {
-    raw = execFileSync(
-      'npm',
-      ['audit', '--json'],
-      { cwd: absPath, timeout: 60_000, maxBuffer: 20 * 1024 * 1024 }
-    ).toString();
-  } catch (err) {
-    // EXIT CODE 1 = VULNÉRABILITÉS TROUVÉES, PAS UNE ERREUR D'EXÉCUTION
-    if (err.stdout) {
-      raw = err.stdout.toString();
-    } else {
-      console.error('[NpmAudit] Erreur d\'exécution :', err.message);
-      return [];
-    }
+  // SI PAS DE PACKAGE-LOCK.JSON → EN GÉNÉRER UN SANS INSTALLER (PLUS RAPIDE)
+  const lockFile = path.join(absPath, 'package-lock.json');
+  if (!fs.existsSync(lockFile) && fs.existsSync(path.join(absPath, 'package.json'))) {
+    try {
+      await spawnAsync(
+        'npm',
+        ['install', '--package-lock-only', '--ignore-scripts', '--legacy-peer-deps'],
+        { timeout: 120_000, env: toolsEnv(), cwd: absPath, shell: true }
+      );
+    } catch { /* on tente quand même npm audit */ }
   }
 
-  let parsed;
+  let result;
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.error('[NpmAudit] Output JSON invalide');
+    // LANCE NPM AUDIT EN LIGNE DE COMMANDE AVEC LES BONS PARAMÈTRES
+    result = await spawnAsync(
+      'npm',
+      ['audit', '--json', '--omit=optional'],
+      { timeout: 180_000, env: toolsEnv(), cwd: absPath, shell: true }
+    );
+  } catch (err) {
+    // EN CAS D'ERREUR, LOG ET RETOURNE UN TABLEAU VIDE
+    console.error('[NpmAudit] Erreur:', err.message);
     return [];
   }
 
-  // NORMALISATION : FORMAT NPM AUDIT v2 → FORMAT STANDARD DES ANALYSEURS
-  // Format : { vulnerabilities: { [pkgName]: { severity, via, fixAvailable, range, ... } } }
-  const vulns = [];
+  // PARSE LA SORTIE JSON DE NPM AUDIT
+  // EXIT CODE 1 = VULNÉRABILITÉS TROUVÉES — STDOUT CONTIENT QUAND MÊME LE JSON
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    // SI LE JSON EST INVALIDE, LOG ET RETOURNE UN TABLEAU VIDE
+    console.error('[NpmAudit] Output JSON invalide — code:', result.code);
+    return [];
+  }
+
+  // TRANSFORME LES RÉSULTATS EN FORMAT VULNÉRABILITÉ STANDARD
+  const vulns   = [];
   const entries = parsed.vulnerabilities || {};
 
   for (const [pkgName, vuln] of Object.entries(entries)) {
-    // "via" peut contenir des strings (dépendance transitive) ou des objets (CVE direct)
-    // On ne traite que les objets — les strings sont des refs vers d'autres entrées déjà traitées
     const directSources = Array.isArray(vuln.via)
       ? vuln.via.filter((v) => typeof v === 'object')
       : [];
-
     if (directSources.length === 0) continue;
 
     for (const source of directSources) {
@@ -76,12 +89,11 @@ function runNpmAudit(repoPath) {
       });
     }
   }
-
   return vulns;
 }
 
-// CONSTRUCTION DES CHAMPS DÉRIVÉS
 
+// CONSTRUIT UNE DESCRIPTION LISIBLE POUR CHAQUE VULNÉRABILITÉ
 function buildDescription(pkgName, vuln, source) {
   const parts = [`Package: ${pkgName}@${vuln.range || '*'}`];
   if (source.cve)  parts.push(`CVE: ${source.cve}`);
@@ -89,6 +101,8 @@ function buildDescription(pkgName, vuln, source) {
   return parts.join(' — ');
 }
 
+
+// GÉNÈRE UN MESSAGE DE CORRECTION ADAPTÉ SELON LE TYPE DE FIX
 function buildFix(fixAvailable) {
   if (!fixAvailable) return 'Aucun correctif disponible.';
   if (fixAvailable === true) return 'Mettre à jour vers la dernière version (`npm audit fix`).';
@@ -98,4 +112,6 @@ function buildFix(fixAvailable) {
   return null;
 }
 
-module.exports = { runNpmAudit };
+
+// EXPORT DU MODULE POUR UTILISATION DANS LE BACKEND
+module.exports = { runNpmAudit, run: runNpmAudit };
