@@ -174,6 +174,19 @@ const ScanModel = {
     });
   },
 
+  // RÉCUPÉRER UNE VULNÉRABILITÉ PAR SON ID (utilisé par le controller AI on-demand)
+  async findVulnById(vulnId) {
+    return prisma.vulnerability.findUnique({ where: { id: vulnId } });
+  },
+
+  // METTRE À JOUR LE FIX SUGGESTION D'UNE VULNÉRABILITÉ (appel IA on-demand)
+  async updateFixSuggestion(vulnId, fixSuggestion) {
+    return prisma.vulnerability.update({
+      where: { id: vulnId },
+      data: { fixSuggestion },
+    });
+  },
+
   // Récupérer les vulnérabilités d'un scan avec filtres
   async getVulnerabilities(scanId, { severity, owasp } = {}) {
     const where = { scanId };
