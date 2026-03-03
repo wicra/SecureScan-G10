@@ -5,19 +5,19 @@ const path = require("path");
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const env = {
-  PORT: parseInt(process.env.PORT) || 3001,
-  NODE_ENV: process.env.NODE_ENV || "development",
+  PORT: parseInt(process.env.PORT),
+  NODE_ENV: process.env.NODE_ENV,
   DATABASE_URL: process.env.DATABASE_URL,
   JWT_SECRET: process.env.JWT_SECRET,
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
-  GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "",
-  GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "",
-  GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL || "",
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
-  TMP_SCAN_DIR: process.env.TMP_SCAN_DIR || "/tmp/securescan-repos",
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
+  GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID,
+  GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,
+  GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  TMP_SCAN_DIR: process.env.TMP_SCAN_DIR
 };
 
-// Validation : on vérifie que les variables critiques sont présentes
+// VERIFICATION IMPERATIF
 const required = ["DATABASE_URL", "JWT_SECRET"];
 for (const key of required) {
   if (!env[key]) {
