@@ -30,8 +30,8 @@ model User {
 // ─────────────────────────────────────────────
 model Scan {
   id            Int       @id @default(autoincrement())
-  userId        Int
-  user          User      @relation(fields: [userId], references: [id])
+  userId        Int?
+  user          User?     @relation(fields: [userId], references: [id])
 
   repoUrl       String
   repoName      String?
@@ -70,16 +70,16 @@ model Vulnerability {
   scan          Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
 
   tool          String   // semgrep | eslint | npm_audit | trufflehog
-  title         String
-  description   String?
+  title         String   @db.VarChar(500)
+  description   String?  @db.Text
   severity      String   // critical | high | medium | low
   owaspCategory String?  // A05:2025, A01:2025…
-  filePath      String?
+  filePath      String?  @db.VarChar(1000)
   lineStart     Int?
   lineEnd       Int?
-  ruleId        String?  // "javascript.express.sqli"
-  codeSnippet   String?
-  fixSuggestion String?
+  ruleId        String?  @db.VarChar(500) // "javascript.express.sqli"
+  codeSnippet   String?  @db.Text
+  fixSuggestion String?  @db.Text
   cvssScore     Decimal? @db.Decimal(3, 1)
   isFixed       Boolean  @default(false)
   createdAt     DateTime @default(now())

@@ -27,8 +27,11 @@ const createScan = async (req, res, next) => {
     // 1. Cloner le repo
     repoPath = await GitService.cloneRepo(repoUrl);
 
-    // Détecter le langage
+    // Détecter le langage et persister immédiatement en DB
     const language = GitService.detectLanguage(repoPath);
+    if (language) {
+      await ScanModel.updateLanguage(scan.id, language);
+    }
 
     // 2. Lancer les analyseurs
     const results = await ScannerService.runFullScan(repoPath);
@@ -77,9 +80,10 @@ const createScan = async (req, res, next) => {
       ...results,
     });
   } catch (err) {
-    // En cas d'erreur, nettoyer et marquer le scan comme échoué
-    if (repoPath) {
-      GitService.cleanup(repoPath);
+    // MARQUER LE SCAN COMME ÉCHOUÉ EN DB AVANT DE PROPAGER L'ERREUR
+    if (repoPath) GitService.cleanup(repoPath);
+    if (typeof scan !== 'undefined' && scan?.id) {
+      await ScanModel.markFailed(scan.id).catch(() => {});
     }
     console.error(`❌ Scan échoué :`, err.message);
     next(err);
