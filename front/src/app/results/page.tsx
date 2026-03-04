@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles, Check, Copy, FileText, ChevronRight } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Badge } from "@/components/Badge";
+import { CodeBlock } from "@/components/CodeBlock";
 import { getScan, isLoggedIn, markVulnFixed, requestAiFix, getCurrentScanId } from "@/lib/api";
 interface VulnData {
   id: number;
@@ -251,9 +252,11 @@ export default function ResultsPage() {
                       <div className="text-xs uppercase tracking-wider text-(--color-text3) mb-2.5">
                         Code vulnérable — {selectedVuln.filePath}{selectedVuln.lineStart ? `:${selectedVuln.lineStart}` : ""}
                       </div>
-                      <div className="bg-(--color-bg) border border-(--color-border) rounded-lg p-4 font-(--font-space-mono) text-xs leading-relaxed overflow-x-auto">
-                        <pre className="text-(--color-red) whitespace-pre-wrap">{selectedVuln.codeSnippet}</pre>
-                      </div>
+                      <CodeBlock
+                        code={selectedVuln.codeSnippet}
+                        filePath={selectedVuln.filePath}
+                        startingLineNumber={selectedVuln.lineStart ?? 1}
+                      />
                     </div>
                   )}
 
@@ -265,9 +268,11 @@ export default function ResultsPage() {
                           <Sparkles size={14} strokeWidth={2} />
                           Correction IA suggérée
                         </div>
-                        <div className="bg-(--color-bg) border border-(--color-border) rounded-lg p-4 font-(--font-space-mono) text-xs leading-relaxed overflow-x-auto">
-                          <pre className="text-(--color-green) whitespace-pre-wrap">{selectedVuln.fixSuggestion}</pre>
-                        </div>
+                        <CodeBlock
+                          code={selectedVuln.fixSuggestion}
+                          filePath={selectedVuln.filePath}
+                          startingLineNumber={selectedVuln.lineStart ?? 1}
+                        />
                         <div className="flex flex-wrap gap-2.5 mt-4">
                           <button
                             type="button"
