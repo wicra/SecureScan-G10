@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Globe, Download, FileText, Shield } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Badge } from "@/components/Badge";
-import { getScan, isLoggedIn } from "@/lib/api";
+import { getScan, isLoggedIn, getCurrentScanId } from "@/lib/api";
 
 interface ScanData {
   id: number;
@@ -35,8 +35,9 @@ export default function ReportPage() {
     if (!isLoggedIn()) { router.push("/login"); return; }
     const load = async () => {
       try {
-        if (paramScanId) {
-          const data = await getScan(parseInt(paramScanId));
+        const id = paramScanId ? parseInt(paramScanId) : getCurrentScanId();
+        if (id) {
+          const data = await getScan(id);
           setScan(data);
         }
       } catch (err) { console.error(err); }
