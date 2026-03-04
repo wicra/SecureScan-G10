@@ -1,328 +1,286 @@
-# 🔧 SecureScan — Backend
+# 📘 README-dev — SecureScan
 
-> Node.js · Express · PostgreSQL · Prisma ORM  
-> Ce dossier contient **toute la logique serveur** : API REST, orchestration des analyseurs, gestion de la BDD.
-
-> 💡 **Philosophie :** schéma BDD minimal — 3 tables uniquement. Les résultats d'analyse vivent en `JSONB` dans `scans.results_json` et sont parsés côté React. Seuls les fixes confirmés sont persistés dans `vuln_fixes`.
+> Documentation technique interne — Hackathon IPSSI 2026
 
 ---
 
-## 🏗️ Structure complète du dossier
+## 🗂️ Structure du monorepo
 
 ```
-server/
-│
-├── prisma/
-│   ├── schema.prisma          # Schéma BDD — 3 tables : users, scans, vuln_fixes
-│   └── migrations/            # Migrations auto-générées par Prisma
-│       └── 20260302_init/     # Création des 3 tables
-│
-├── src/
-│   │
-│   ├── routes/                # Déclaration des endpoints Express
-│   │   ├── auth.routes.js     # POST /auth/login, /auth/register, /auth/github
-│   │   ├── scans.routes.js    # POST /scans, GET /scans, GET /scans/:id
-│   │   ├── fixes.routes.js    # POST /scans/:id/fixes  (persister un fix)
-│   │   └── index.js           # Agrège toutes les routes
-│   │
-│   ├── controllers/           # Logique métier (appelée par les routes)
-│   │   ├── auth.controller.js
-│   │   ├── scans.controller.js
-│   │   └── fixes.controller.js
-│   │
-│   ├── services/              # Cœur du projet : orchestration des analyseurs
-│   │   ├── git.service.js     # Clone le repo Git (simple-git)
-│   │   ├── semgrep.service.js # Lance Semgrep, parse le JSON
-│   │   ├── eslint.service.js  # Lance ESLint Security, parse le JSON
-│   │   ├── npmAudit.service.js# Lance npm audit, parse le JSON
-│   │   ├── trufflehog.service.js # Lance TruffleHog, parse le JSON
-│   │   ├── scanner.service.js # Orchestrateur : lance tous les analyseurs
-│   │   │                      # → produit results_json stocké dans scans
-│   │   ├── owasp.service.js   # Mappe les check_id vers OWASP Top 10
-│   │   ├── score.service.js   # Calcule le score /100 (pondéré par sévérité)
-│   │   └── ai.service.js      # Appel LLM pour suggestions de fix (bonus)
-│   │
-│   ├── models/                # Accès BDD via Prisma (thin wrappers)
-│   │   ├── user.model.js
-│   │   ├── scan.model.js
-│   │   └── vulnFix.model.js   # Seulement les fixes persistés
-│   │
-│   ├── middlewares/
-│   │   ├── auth.middleware.js  # Vérifie le JWT
-│   │   ├── error.middleware.js # Gestion centralisée des erreurs
-│   │   └── validate.middleware.js # Validation des body (zod)
-│   │
-│   ├── config/
-│   │   ├── db.js              # Instance Prisma Client (singleton)
-│   │   └── env.js             # Chargement et validation des variables d'env
-│   │
-│   └── index.js               # Point d'entrée Express
-│
-├── .env.example
-├── package.json
-└── README.md                  # ← ce fichier
+SecureScan/
+├── front/          # React + Vite + TypeScript
+├── server/         # Node.js + Express + TypeScript
+├── design/         # Maquettes / assets
+├── .gitignore
+├── README.md
+└── README-dev.md
 ```
 
 ---
 
-## 🗄️ ORM — Pourquoi Prisma ?
+## ⚙️ Setup développement
 
-On utilise **[Prisma](https://www.prisma.io/)** comme ORM.
+### Prérequis
 
-| Critère | Prisma | Sequelize | Knex |
-|---------|--------|-----------|------|
-| Prise en main rapide | ✅ | ⚠️ | ❌ |
-| Auto-complétion TypeScript | ✅ | ⚠️ | ❌ |
-| Migrations intégrées | ✅ | ⚠️ | ✅ |
-| Lisibilité du schéma | ✅ | ❌ | ❌ |
-| Adapté en hackathon | ✅ | ⚠️ | ❌ |
+- Node.js 20+
+- PostgreSQL 15+
+- npm 10+
 
-> Prisma génère automatiquement les migrations à partir du `schema.prisma` et offre une auto-complétion parfaite. **On gagne un temps précieux.**
-
-### Commandes Prisma essentielles
+### Installation
 
 ```bash
-# Appliquer les migrations en dev (après modification du schema)
-npx prisma migrate dev --name nom_de_la_migration
+# Frontend
+cd front
+npm install
+npm run dev        # → http://localhost:5173
 
-# Générer le client Prisma (après un pull)
-npx prisma generate
-
-# Voir la BDD dans l'interface web Prisma Studio
-npx prisma studio
-
-# Reset complet de la BDD (⚠️ efface tout)
-npx prisma migrate reset
+# Backend
+cd server
+npm install
+npm run dev        # → http://localhost:3000
 ```
 
----
-
-## 👥 Répartition entre les 2 devs backend
-
-### Dev Backend A — Auth + Scans + Orchestration
-
-**Branches :**
-```
-feature/backend/auth-register-login
-feature/backend/auth-github-oauth
-feature/backend/scan-create-endpoint
-feature/backend/scanner-orchestrator
-feature/backend/git-clone-service
-fix/backend/...
-```
-
-**Fichiers à sa charge :**
-```
-src/routes/auth.routes.js
-src/controllers/auth.controller.js
-src/routes/scans.routes.js
-src/controllers/scans.controller.js
-src/services/git.service.js
-src/services/scanner.service.js
-src/middlewares/auth.middleware.js
-src/config/env.js
-```
-
-**Tâches concrètes :**
-- [ ] `POST /auth/register` — créer un compte (bcrypt + JWT)
-- [ ] `POST /auth/login` — login email/password
-- [ ] `GET /auth/github` — OAuth GitHub
-- [ ] `POST /scans` — créer un scan (cloner le repo, lancer l'orchestrateur)
-- [ ] `GET /scans` — liste des scans de l'utilisateur connecté
-- [ ] `GET /scans/:id` — détail d'un scan (stats, score)
-- [ ] Orchestrateur : appeler chaque service analyseur en parallèle (`Promise.all`)
-- [ ] Calcul du score global `/100`
-
----
-
-### Dev Backend B — Analyseurs + Fixes + Rapport
-
-**Branches :**
-```
-feature/backend/semgrep-service
-feature/backend/eslint-service
-feature/backend/npm-audit-service
-feature/backend/trufflehog-service
-feature/backend/owasp-mapping
-feature/backend/fixes-api
-feature/backend/report-generation
-fix/backend/...
-```
-
-**Fichiers à sa charge :**
-```
-src/services/semgrep.service.js
-src/services/eslint.service.js
-src/services/npmAudit.service.js
-src/services/trufflehog.service.js
-src/services/owasp.service.js
-src/services/score.service.js
-src/services/ai.service.js           ← bonus IA
-src/routes/fixes.routes.js
-src/controllers/fixes.controller.js
-src/models/vulnFix.model.js
-```
-
-**Tâches concrètes :**
-- [ ] `semgrep.service.js` — exécuter Semgrep via `child_process`, parser le JSON
-- [ ] `eslint.service.js` — idem pour ESLint Security
-- [ ] `npmAudit.service.js` — idem pour `npm audit --json`
-- [ ] `trufflehog.service.js` — idem pour TruffleHog
-- [ ] `owasp.service.js` — mapper les `check_id` vers les catégories OWASP Top 10 (table de correspondance statique)
-- [ ] `score.service.js` — score pondéré : critical×10 + high×5 + medium×2 + low×1, normalisé /100
-- [ ] `GET /scans/:id/fixes` — liste des fixes persistés
-- [ ] `POST /scans/:id/fixes` — enregistrer un fix (`rule_id + file_path + line_start`)
-- [ ] `DELETE /scans/:id/fixes/:fixId` — annuler un fix
-- [ ] `GET /scans/:id/report?format=pdf` — générer et streamer le rapport (lib `puppeteer`)
-- [ ] `ai.service.js` — appel Anthropic API, retourner suggestion de fix ← bonus
-
----
-
-## 🗺️ Routes API complètes
-
-```
-AUTH
-  POST   /api/auth/register              ← A
-  POST   /api/auth/login                 ← A
-  GET    /api/auth/github                ← A
-  GET    /api/auth/me                    ← A
-
-SCANS
-  POST   /api/scans                      ← A  (body: { repo_url, analyzers[] })
-  GET    /api/scans                      ← A  (liste de l'utilisateur)
-  GET    /api/scans/:id                  ← A  (dashboard stats)
-  DELETE /api/scans/:id                  ← A
-  PATCH  /api/scans/:id/favorite         ← A  (toggle ⭐)
-
-VULNERABILITÉS
-  GET    /api/scans/:id/vulnerabilities  ← B  (?severity=critical&owasp=A05)
-  GET    /api/scans/:id/vulnerabilities/:vulnId  ← B  (détail)
-  PATCH  /api/scans/:id/vulnerabilities/:vulnId/fix  ← B  (appliquer fix)
-
-RAPPORTS
-  POST   /api/reports                    ← B  (body: { scan_id, format, language })
-  GET    /api/reports/:id                ← B
-  GET    /api/reports/:id/download       ← B
-```
-
----
-
-## 🔑 Variables d'environnement
-
-Copier `.env.example` → `.env` :
+### Variables d'environnement — `server/.env`
 
 ```env
-# Serveur
-PORT=3001
-NODE_ENV=development
-
-# Base de données
-DATABASE_URL="postgresql://user:password@localhost:5432/securescan"
-
-# Auth
-JWT_SECRET=votre_secret_jwt_super_long
-JWT_EXPIRES_IN=7d
-
-# GitHub OAuth
-GITHUB_CLIENT_ID=
-GITHUB_CLIENT_SECRET=
-GITHUB_CALLBACK_URL=http://localhost:3001/api/auth/github/callback
-
-# IA (bonus)
-ANTHROPIC_API_KEY=
-
-# Dossier temporaire pour les repos clonés
-TMP_SCAN_DIR=/tmp/securescan-repos
+PORT=3000
+DATABASE_URL=postgresql://user:password@localhost:5432/securescan
+JWT_SECRET=ton_secret_jwt
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
 ```
 
 ---
 
-## 🚀 Lancer le backend seul
+## 🗃️ Base de données
+
+### Connexion
 
 ```bash
-cd server
-
-# Installer les dépendances
-npm install
-
-# Configurer l'environnement
-cp .env.example .env
-# → Remplir DATABASE_URL et JWT_SECRET
-
-# Appliquer les migrations et générer le client Prisma
-npx prisma migrate dev --name init
-npx prisma generate
-
-# Lancer en mode développement (hot-reload)
-npm run dev
+psql -U postgres
+CREATE DATABASE securescan;
 ```
 
-Le serveur tourne sur **http://localhost:3001**
+### Migration (à la main pour l'instant)
+
+```sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash TEXT,
+  github_id VARCHAR(100),
+  avatar_url TEXT,
+  role VARCHAR(20) DEFAULT 'analyste',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE scans (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id),
+  repo_url TEXT NOT NULL,
+  repo_name VARCHAR(255),
+  language VARCHAR(50),
+  analyzers TEXT[],
+  status VARCHAR(20) DEFAULT 'pending',
+  score INT,
+  vuln_critical INT DEFAULT 0,
+  vuln_high INT DEFAULT 0,
+  vuln_medium INT DEFAULT 0,
+  vuln_low INT DEFAULT 0,
+  secrets_count INT DEFAULT 0,
+  files_total INT DEFAULT 0,
+  results_json JSONB,
+  is_favorite BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+
+CREATE TABLE vuln_fixes (
+  id SERIAL PRIMARY KEY,
+  scan_id INT REFERENCES scans(id),
+  rule_id VARCHAR(255),
+  file_path TEXT,
+  line_start INT,
+  fixed_at TIMESTAMP DEFAULT NOW()
+);
+```
 
 ---
 
-## 🌿 Workflow Git pour les backend devs
+## 🔌 API REST — Endpoints
+
+### Auth
+
+| Méthode | Route | Description |
+|---|---|---|
+| POST | `/api/auth/register` | Inscription email/password |
+| POST | `/api/auth/login` | Connexion → JWT |
+| GET | `/api/auth/github` | OAuth GitHub redirect |
+| GET | `/api/auth/github/callback` | Callback GitHub |
+
+### Scans
+
+| Méthode | Route | Description |
+|---|---|---|
+| POST | `/api/scans` | Lancer un nouveau scan |
+| GET | `/api/scans` | Liste des scans de l'utilisateur |
+| GET | `/api/scans/:id` | Détail d'un scan |
+| PATCH | `/api/scans/:id/favorite` | Toggle favori |
+| DELETE | `/api/scans/:id` | Supprimer un scan |
+
+### Vulnérabilités
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/api/scans/:id/vulns` | Liste des vulnérabilités du scan |
+| POST | `/api/scans/:id/fixes` | Appliquer un fix |
+
+### Rapports
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/api/scans/:id/report/pdf` | Générer rapport PDF |
+| GET | `/api/scans/:id/report/html` | Générer rapport HTML |
+
+---
+
+## 🔍 Analyseurs — Intégration
+
+### Semgrep
 
 ```bash
-# Départ : toujours depuis dev à jour
-git checkout dev
-git pull origin dev
-
-# Créer sa branche
-git checkout -b feature/backend/semgrep-service
-
-# Coder...
-git add .
-git commit -m "feat(backend): parse semgrep JSON output and normalize results"
-
-# Rester à jour avec dev avant de pousser
-git fetch origin
-git rebase origin/dev
-
-# Push et PR vers dev (pas main !)
-git push -u origin feature/backend/semgrep-service
+semgrep --config=auto --json <chemin_repo>
 ```
 
-### Convention de commit
+Parsing de la sortie JSON → extraction `results[]` avec `check_id`, `path`, `start.line`, `severity`, `message`.
+
+### ESLint Security
+
+Plugin `eslint-plugin-security` — config `.eslintrc` fournie dans `server/services/`.
+
+### npm audit
+
+```bash
+npm audit --json
+```
+
+Champ `vulnerabilities` → on extrait `severity`, `name`, `via`.
+
+### TruffleHog
+
+```bash
+trufflehog filesystem <chemin_repo> --json
+```
+
+Détection de secrets dans les fichiers et l'historique Git.
+
+### Bandit (Python)
+
+```bash
+bandit -r <chemin_repo> -f json
+```
+
+Utilisé uniquement si des fichiers `.py` sont détectés dans le repo scanné.
+
+---
+
+## 🧱 Architecture frontend (React + TypeScript)
 
 ```
-feat(backend): description courte
-fix(backend): correction d'un bug
-chore(db): ajout migration scans
-test(backend): tests unitaires scanner service
-refactor(backend): refacto owasp mapping
+front/src/
+├── components/
+│   ├── layout/          # Sidebar, Navbar, Layout wrapper
+│   ├── scan/            # ScanForm, ScanCard, ScanStatus
+│   ├── vulns/           # VulnList, VulnDetail, SeverityBadge
+│   └── charts/          # ScoreGauge, OwaspChart, SeverityPie
+├── pages/
+│   ├── Home.tsx          # Formulaire de scan + historique
+│   ├── Dashboard.tsx     # Vue d'ensemble d'un scan
+│   ├── Vulnerabilities.tsx
+│   ├── Secrets.tsx
+│   ├── Report.tsx
+│   └── Login.tsx
+├── services/
+│   ├── api.ts            # Axios instance + interceptors JWT
+│   ├── scans.ts
+│   └── auth.ts
+├── hooks/
+│   ├── useAuth.ts
+│   └── useScan.ts
+├── types/
+│   └── index.ts          # Interfaces TypeScript
+└── App.tsx
 ```
 
 ---
 
-## 📦 Dépendances principales
+## 🔐 Authentification
 
-```json
-{
-  "dependencies": {
-    "express": "^4.18",
-    "@prisma/client": "^5.x",
-    "bcryptjs": "^2.4",
-    "jsonwebtoken": "^9.x",
-    "zod": "^3.x",
-    "simple-git": "^3.x",
-    "puppeteer": "^21.x",
-    "cors": "^2.8",
-    "dotenv": "^16.x"
-  },
-  "devDependencies": {
-    "prisma": "^5.x",
-    "nodemon": "^3.x",
-    "jest": "^29.x",
-    "supertest": "^6.x"
-  }
-}
-```
-
-> `puppeteer` sert uniquement pour `GET /scans/:id/report` — génération à la volée, rien n'est stocké.
-```
+- JWT stocké en `localStorage`
+- Axios interceptor ajoute le header `Authorization: Bearer <token>` automatiquement
+- OAuth GitHub → `passport-github2` côté serveur
 
 ---
 
-*→ README Frontend : [`client/README.md`](../client/README.md)*  
-*→ README global : [`README.md`](../README.md)*
+## 🌿 Convention Git
+
+### Commits
+
+Format : `type(scope): message`
+
+| Type | Usage |
+|---|---|
+| `feat` | Nouvelle fonctionnalité |
+| `fix` | Correction de bug |
+| `chore` | Config, deps, docs |
+| `refactor` | Refacto sans changement fonctionnel |
+| `style` | CSS / formatting |
+
+Exemples :
+```
+feat(backend): add semgrep runner service
+fix(frontend): correct scan status polling
+chore(db): add vuln_fixes migration
+```
+
+### Branches
+
+```
+feature/backend/<nom>
+feature/frontend/<nom>
+fix/backend/<nom>
+fix/frontend/<nom>
+chore/<nom>
+```
+
+### Répartition
+
+| Personne | Périmètre |
+|---|---|
+| Dev Backend A | Auth, scan controller, API REST |
+| Dev Backend B | Intégration analyseurs, jobs async, rapport |
+| Dev Frontend | Toutes les pages React, composants, appels API |
+
+---
+
+## 🚨 Points de vigilance
+
+- **Ne jamais commit de secrets** (`.env` dans `.gitignore`)
+- **Toujours rebase sur `dev`** avant d'ouvrir une PR
+- **Ne jamais pousser directement sur `main`**
+- Les scans sont potentiellement longs → prévoir un **polling** côté frontend sur le statut (`pending` → `running` → `completed`)
+- Le clonage de repo Git côté serveur = **surface d'attaque** → sandbox / timeout obligatoire
+
+---
+
+## 📦 Releases
+
+| Version | Date | Notes |
+|---|---|---|
+| v1.1.0 | 04/03/2026 | Dernière release — voir [GitHub Releases](https://github.com/wicra/SecureScan/releases) |
+| v1.0.0 | 02/03/2026 | Release initiale |
+
+---
+
+*Hackathon IPSSI 2026 — [wicra/SecureScan](https://github.com/wicra/SecureScan)*
