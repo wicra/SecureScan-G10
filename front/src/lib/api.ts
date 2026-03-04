@@ -145,6 +145,17 @@ export async function markVulnFixed(scanId: number, vulnId: number) {
   if (!res.ok) throw new Error(data.error || "Erreur");
   return data;
 }
+
+// Demande un fix IA pour une vulnérabilité (génère ou récupère depuis le cache DB)
+export async function requestAiFix(scanId: number, vulnId: number): Promise<{ fixSuggestion: string; cached: boolean }> {
+  const res = await fetch(`${API_URL}/scans/${scanId}/vulnerabilities/${vulnId}/ai-fix`, {
+    method: "POST",
+    headers: headers(true),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Erreur IA");
+  return data;
+}
 export function setCurrentScanId(id: number) {
   localStorage.setItem("securescan_current_scan", String(id));
 }

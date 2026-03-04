@@ -29,4 +29,7 @@ router.get("/:id/vulnerabilities", requireAuth, scansController.getVulnerabiliti
 // PATCH /api/scans/:id/vulnerabilities/:vulnId/fix — Marquer comme fixé
 router.patch("/:id/vulnerabilities/:vulnId/fix", requireAuth, scansController.markFixed);
 
+// POST /api/scans/:id/vulnerabilities/:vulnId/ai-fix — Fix IA on-demand (si fixSuggestion manquant)
+router.post("/:id/vulnerabilities/:vulnId/ai-fix", requireAuth, scansController.getAiFix);
+
 module.exports = router;
