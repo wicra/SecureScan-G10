@@ -1,4 +1,4 @@
-# 📘 Documentation_Technique — SecureScan
+# 📘 Documentation Technique — SecureScan
 
 > Documentation technique interne — Hackathon IPSSI 2026
 
