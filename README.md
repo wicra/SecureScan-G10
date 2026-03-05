@@ -1,220 +1,246 @@
 # 🛡️ SecureScan
 
 > **Hackathon IPSSI 2026** — Semaine du 2 au 6 mars 2026  
-> Plateforme web d'analyse de qualité & sécurité de code, basée sur l'OWASP Top 10 2025.
+> Plateforme web d'analyse de sécurité de code, basée sur l'OWASP Top 10 2025.
 
 ---
 
-## 📌 C'est quoi ?
+## 📌 Présentation
 
-SecureScan est une **plateforme web** qui analyse automatiquement le code d'un dépôt Git à la recherche de **failles de sécurité**.
+SecureScan permet d'analyser automatiquement un dépôt de code source à la recherche de failles de sécurité. L'utilisateur entre une URL Git ou uploade un ZIP — la plateforme orchestre plusieurs outils d'analyse open source, agrège les résultats et les présente dans un dashboard exploitable.
 
-L'idée est simple :
-
-1. Tu entres l'URL d'un repo Git **ou tu uploades un ZIP**
-2. La plateforme clone le repo et lance les analyseurs en parallèle
-3. Elle affiche un **dashboard clair** avec les vulnérabilités détectées, classées selon l'OWASP Top 10 2025
-4. Elle propose des **corrections IA on-demand** via OpenRouter
-5. Elle génère un **rapport PDF/HTML** exportable
-
-> Les scans anonymes sont possibles (sans compte). La connexion débloque le détail complet des vulnérabilités et l'historique.
+**Fonctionnalités clés :**
+- Scan via URL Git ou upload ZIP (max 50 Mo)
+- 4 analyseurs lancés en parallèle (Semgrep, ESLint Security, npm audit, TruffleHog)
+- Score de sécurité /100 + grade A→F
+- Vulnérabilités classées par sévérité et mappées sur l'OWASP Top 10 2025
+- Corrections de code générées par IA (OpenRouter / Gemma 3)
+- Export rapport PDF/HTML
+- Scan anonyme possible — compte optionnel pour accéder au détail
 
 ---
 
 ## ⚙️ Stack technique
 
-| Couche | Technologie |
+| Couche | Technologie | Pourquoi |
+| --- | --- | --- |
+| Frontend | Next.js 16 + TypeScript + Tailwind CSS | SSR, routing App Router, typage fort |
+| Backend | Node.js + Express | Léger, async natif, adapté aux processus externes |
+| ORM / BDD | Prisma 5 + MySQL 8 | Migrations auto, schéma typé, requêtes simples |
+| Analyseurs | Semgrep, ESLint Security, npm audit, TruffleHog | Open source, multi-langages, JSON output |
+| IA | OpenRouter (Gemma 3 27B — gratuit) | Fix de code on-demand, zéro coût |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Utilisateur                              │
+│               (URL Git ou upload ZIP)                           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ HTTP
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Frontend — Next.js :3000                      │
+│  page.tsx (scan) · dashboard · results · report · login         │
+│  lib/api.ts → appels fetch + JWT Bearer                         │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ REST API /api/*
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Backend — Express :3001                       │
+│                                                                 │
+│  optionalAuth → validate(Zod) → ScanController                  │
+│                                                                 │
+│  ScanController                                                 │
+│    ├── GitService          → git clone --depth 500              │
+│    ├── ScannerService      → Promise.all([...])                 │
+│    │     ├── SemgrepService     semgrep --config auto --json    │
+│    │     ├── EslintService      eslint-plugin-security          │
+│    │     ├── NpmAuditService    npm audit --json                │
+│    │     └── TrufflehogService  trufflehog filesystem --json    │
+│    ├── OwaspService        → mapping résultats → OWASP 2025     │
+│    ├── ScoreService        → calcul score /100 + grade          │
+│    └── AiService           → fix IA on-demand (OpenRouter)      │
+│                                                                 │
+└──────────────┬──────────────────────────────────────────────────┘
+               │ Prisma
+               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   MySQL 8 — Base de données                     │
+│   users · scans · vulnerabilities                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🗃️ Schéma de base de données
+
+```
+┌──────────────┐         ┌─────────────────────────────┐
+│    users     │  1 ─── N│           scans              │
+├──────────────┤         ├─────────────────────────────┤
+│ id           │         │ id                           │
+│ name         │         │ userId (FK, nullable)        │
+│ email        │         │ repoUrl                      │
+│ passwordHash │         │ repoName                     │
+│ githubId     │         │ language                     │
+│ avatarUrl    │         │ status (pending|running|      │
+│ role         │         │         completed|failed)    │
+│ createdAt    │         │ score (0-100)                 │
+└──────────────┘         │ vulnTotal / Critical /        │
+                         │ High / Medium / Low           │
+                         │ secretsCount                  │
+                         │ filesTotal / filesImpacted    │
+                         │ isFavorite                    │
+                         │ createdAt / completedAt       │
+                         └──────────────┬──────────────┘
+                                        │ 1 ─── N
+                         ┌──────────────▼──────────────┐
+                         │      vulnerabilities         │
+                         ├─────────────────────────────┤
+                         │ id                           │
+                         │ scanId (FK)                  │
+                         │ tool (semgrep|eslint|…)      │
+                         │ title                        │
+                         │ severity (critical|high|…)   │
+                         │ owaspCategory (A01:2025…)    │
+                         │ filePath / lineStart / lineEnd│
+                         │ ruleId                       │
+                         │ codeSnippet                  │
+                         │ fixSuggestion (IA, cached)   │
+                         │ cvssScore                    │
+                         │ isFixed                      │
+                         └─────────────────────────────┘
+```
+
+> `userId` est nullable : les scans anonymes sont autorisés. Après connexion, le scan est rattaché via `PATCH /api/scans/:id/claim`.
+
+---
+
+## 🗺️ Mapping OWASP Top 10 2025
+
+Les résultats bruts des analyseurs sont normalisés puis mappés sur l'OWASP Top 10 2025 par `OwaspService` via deux mécanismes :
+
+**1. Remapping OWASP 2021 → 2025** (les catégories ont bougé entre les deux versions) :
+
+| OWASP 2021 | OWASP 2025 |
 | --- | --- |
-| Frontend | **Next.js 16** + TypeScript + Tailwind CSS |
-| Backend | **Node.js** + Express + JavaScript |
-| ORM / BDD | **Prisma 5** + MySQL 8 |
-| IA | **OpenRouter** (Gemma 3 27B / 12B — gratuit) |
-| Analyseurs | Semgrep, ESLint Security, npm audit, TruffleHog |
+| A01 — Broken Access Control | A01 — Broken Access Control *(inchangé)* |
+| A02 — Cryptographic Failures | A04 — Cryptographic Failures |
+| A03 — Injection | A05 — Injection |
+| A04 — Insecure Design | A06 — Insecure Design |
+| A05 — Security Misconfiguration | A02 — Security Misconfiguration *(monte)* |
+| A06 — Vulnerable Components | A03 — Software Supply Chain Failures |
+| A07 — Auth Failures | A07 — Authentication Failures |
+| A08 — Integrity Failures | A08 — Software or Data Integrity Failures |
+| A09 — Logging Failures | A09 — Security Logging & Alerting Failures |
+| A10 — SSRF | A01 — Broken Access Control *(intégré)* |
 
-> 📦 Frontend (`front/`) et backend (`server/`) dans le **même dépôt** (monorepo).
+**2. Matching par regex sur le `ruleId`** pour les résultats sans catégorie explicite :
 
----
-
-## 🗂️ Structure du projet
-
-```
-SecureScan/
-│
-├── front/                        # 🎨 Frontend Next.js + TypeScript
-│   ├── public/
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── page.tsx          # Accueil — formulaire scan + drag-and-drop ZIP
-│   │   │   ├── scan/page.tsx     # Page scan en cours (progression)
-│   │   │   ├── dashboard/page.tsx
-│   │   │   ├── results/page.tsx  # Détail vulnérabilités + fix IA
-│   │   │   ├── report/page.tsx   # Rapport PDF/HTML
-│   │   │   ├── login/page.tsx
-│   │   │   └── auth/callback/page.tsx  # Callback OAuth GitHub
-│   │   ├── components/
-│   │   │   ├── Badge.tsx
-│   │   │   ├── CodeBlock.tsx
-│   │   │   ├── HomeScanBox.tsx
-│   │   │   ├── Logo.tsx
-│   │   │   └── Sidebar.tsx
-│   │   └── lib/
-│   │       └── api.ts            # Client API (fetch + JWT)
-│   ├── next.config.ts
-│   ├── eslint.config.mjs
-│   ├── postcss.config.mjs
-│   └── tsconfig.json
-│
-├── server/                       # 🔧 Backend Node.js / Express
-│   ├── prisma/
-│   │   └── schema.prisma         # Schéma MySQL (User, Scan, Vulnerability)
-│   ├── src/
-│   │   ├── config/               # env.js, db.js, tools.js (PATH binaires)
-│   │   ├── controllers/          # auth.controller.js, scans.controller.js
-│   │   ├── middlewares/          # auth, validate (Zod), error
-│   │   ├── models/               # user.model.js, scan.model.js, vulnFix.model.js
-│   │   ├── routes/               # auth.routes.js, scans.routes.js
-│   │   ├── services/
-│   │   │   ├── scanner.service.js    # Orchestrateur (4 analyseurs en parallèle)
-│   │   │   ├── git.service.js        # Clone, détection langage, cleanup
-│   │   │   ├── semgrep.service.js    # SAST multi-langages
-│   │   │   ├── eslint.service.js     # Patterns dangereux JS/TS
-│   │   │   ├── npmAudit.service.js   # Dépendances vulnérables
-│   │   │   ├── trufflehog.service.js # Secrets dans les fichiers
-│   │   │   ├── owasp.service.js      # Mapping OWASP 2021→2025 + CVSS
-│   │   │   ├── score.service.js      # Calcul score + catégories
-│   │   │   ├── ai.service.js         # Fix IA on-demand (OpenRouter)
-│   │   │   └── upload.service.js     # Extraction ZIP
-│   │   ├── utils/
-│   │   │   ├── safePath.js       # Sécurité path traversal
-│   │   │   └── spawn.js          # spawnAsync pour les binaires
-│   │   ├── index.js              # Démarrage serveur
-│   │   └── seed-demo.js          # Données de démo
-│   ├── app.js                    # Config Express (CORS, morgan, routes)
-│   └── .env.example
-│
-├── design/                       # 🎨 Wireframes + maquettes couleur (Figma)
-├── .gitignore
-├── README-dev.md
-└── README.md
-```
-
----
-
-## 🗃️ Base de données — MySQL via Prisma
-
-**3 tables.** Pas de `resultsJson` — les vulnérabilités sont stockées ligne par ligne pour permettre le filtrage.
-
-```
-users           → id, name, email, passwordHash, githubId, avatarUrl, role, createdAt
-scans           → id, userId, repoUrl, repoName, language, branch, status,
-                  score, vulnTotal, vulnCritical/High/Medium/Low,
-                  secretsCount, filesTotal, filesImpacted, isFavorite,
-                  createdAt, completedAt
-vulnerabilities → id, scanId, tool, title, description, severity, owaspCategory,
-                  filePath, lineStart, lineEnd, ruleId, codeSnippet,
-                  fixSuggestion, cvssScore, isFixed, createdAt
-```
-
-> Les scans anonymes (`userId = null`) sont supportés. Après connexion, le scan est rattaché via `PATCH /api/scans/:id/claim`.
-
----
-
-## 🚀 Lancer le projet
-
-### Prérequis
-
-- Node.js 20+, npm 10+
-- MySQL 8+
-- Semgrep (`pip install semgrep`)
-- TruffleHog ([releases GitHub](https://github.com/trufflesecurity/trufflehog/releases))
-
-### Installation
-
-```bash
-# 1. Cloner
-git clone https://github.com/wicra/SecureScan.git
-cd SecureScan
-
-# 2. Backend
-cd server
-cp .env.example .env          # remplir DATABASE_URL, JWT_SECRET, etc.
-npm install
-npx prisma migrate dev        # crée les tables MySQL
-node src/seed-demo.js         # optionnel : 3 scans de démo
-npm run dev                   # → http://localhost:3001
-
-# 3. Frontend (autre terminal)
-cd ../front
-npm install
-npm run dev                   # → http://localhost:3000
-```
-
----
-
-## 🔍 Analyseurs intégrés
-
-| Outil | Rôle |
+| Pattern | Catégorie OWASP 2025 |
 | --- | --- |
-| **Semgrep** | Analyse statique (SAST), 30+ langages, remapping OWASP 2021→2025 |
-| **ESLint Security** | Détection de patterns dangereux JS/TS (`eslint-plugin-security`) |
-| **npm audit** | Vulnérabilités dans les dépendances Node.js |
-| **TruffleHog** | Détection de secrets et credentials dans les fichiers |
+| `sqli`, `sql.inject`, `eval-with`, `xss`, `path.travers` | A05 — Injection |
+| `aws`, `api.key`, `github.token`, `private.key`, `md5` | A04 — Cryptographic Failures |
+| `CVE-XXXX`, `npm.audit`, `prototype.pollution` | A03 — Supply Chain |
+| `cors.wildcard`, `helmet`, `xxe`, `debug.enabled` | A02 — Security Misconfiguration |
+| `ssrf`, `open.redirect`, `idor` | A01 — Broken Access Control |
+| `jwt`, `session.fixation`, `hardcode.credential` | A07 — Authentication Failures |
+| *(non reconnu)* | A10 — Mishandling of Exceptional Conditions |
 
-Les 4 analyseurs tournent **en parallèle** via `Promise.all`. Résultats normalisés et mappés sur l'OWASP Top 10 2025 par `OwaspService`.
+**Score CVSS par défaut** (si l'analyseur ne fournit pas de score) :
 
-### Formule de score (0 = compromis, 100 = propre)
+| Sévérité | CVSS par défaut |
+| --- | --- |
+| Critical | 9.8 |
+| High | 7.5 |
+| Medium | 5.0 |
+| Low | 3.0 |
 
-| Sévérité | Pénalité / vuln | Plafond |
+---
+
+## 📊 Calcul du score de sécurité
+
+```
+Score = max(0, 100 − Σ pénalités plafonnées)
+```
+
+| Sévérité | Pénalité / vulnérabilité | Plafond par sévérité |
 | --- | --- | --- |
 | Critical | −20 pts | max −40 pts |
 | High | −10 pts | max −40 pts |
 | Medium | −2 pts | max −15 pts |
 | Low | −0.5 pts | max −5 pts |
 
----
-
-## 🤖 Fix IA (OpenRouter)
-
-Le service `AiService` génère un correctif de code pour une vulnérabilité à la demande.
-
-- Modèle principal : `google/gemma-3-27b-it:free`
-- Fallback : `google/gemma-3-12b-it:free`
-- Le fix est **mis en cache en BDD** pour éviter de rappeler l'IA
-- Prompt strict : correction minimale, commentaire `// SECURITY FIX:`, pas de prose
+**Grade :** ≥80 → A · ≥60 → B · ≥40 → C · ≥20 → D · <20 → F
 
 ---
 
-## 🎨 Design
+## 🚀 Installation et lancement
 
-> 🔗 **[Figma](https://www.figma.com/design/tk9NicbQPEJ2HZPZHk80Hr/SecureScan)**
+### Prérequis
 
-Pages maquettées (wireframe + couleur dark mode) : Connexion, Accueil, Dashboard connecté / non connecté, Résultats, Rapport. Disponibles dans [`design/`](./design/).
+- Node.js 20+, npm 10+
+- MySQL 8+
+- Semgrep : `pip install semgrep`
+- TruffleHog : [github.com/trufflesecurity/trufflehog/releases](https://github.com/trufflesecurity/trufflehog/releases)
+
+### Backend
+
+```bash
+cd server
+cp .env.example .env
+# Remplir DATABASE_URL et JWT_SECRET dans .env
+npm install
+npx prisma migrate dev    # Crée les tables MySQL
+node src/seed-demo.js     # Optionnel : 3 scans de démo
+npm run dev               # → http://localhost:3001
+```
+
+### Frontend
+
+```bash
+cd front
+npm install
+npm run dev               # → http://localhost:3000
+```
+
+### Variables d'environnement requises (`server/.env`)
+
+```env
+DATABASE_URL="mysql://root:password@localhost:3306/securescan"
+JWT_SECRET=chaine_aleatoire_longue
+PORT=3001
+
+# Optionnels
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_CALLBACK_URL=http://localhost:3001/api/auth/github/callback
+OPENROUTER_API_KEY=        # Pour les corrections IA
+TMP_SCAN_DIR=./tmp
+```
+
+> Générer `JWT_SECRET` : `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
 
 ---
 
-## 📊 Critères d'évaluation
+## 🎨 Design & Maquettes
 
-| Critère | Poids |
-| --- | --- |
-| Technique | 40 % |
-| Sécurité OWASP | 25 % |
-| UX & Rendu | 20 % |
-| Travail d'équipe | 15 % |
+> 🔗 **[Projet Figma](https://www.figma.com/design/tk9NicbQPEJ2HZPZHk80Hr/SecureScan)**
+
+Wireframes + UI haute fidélité dark mode disponibles dans [`design/`](./design/).  
+Pages : Connexion · Accueil · Dashboard · Résultats · Rapport
 
 ---
 
-## 🌿 Stratégie Git
+## 🌿 Workflow Git
 
 | Branche | Rôle |
 | --- | --- |
-| `main` | 🚀 Production — merge via PR uniquement |
-| `dev` | 🔧 Intégration — toutes les features mergent ici |
-
-```
-feature/backend/<nom>   feature/frontend/<nom>
-fix/backend/<nom>       fix/frontend/<nom>
-chore/<nom>
-```
+| `main` | Production — merge via PR uniquement |
+| `dev` | Intégration — toutes les features mergent ici |
 
 ```bash
 git checkout dev && git pull origin dev
@@ -222,7 +248,262 @@ git checkout -b feature/backend/ma-feature
 git commit -m "feat(backend): description"
 git rebase origin/dev
 git push -u origin feature/backend/ma-feature
-# → PR vers dev, jamais vers main
+# → PR vers dev, jamais directement sur main
+```
+
+---
+
+*Hackathon IPSSI 2026 — [Page du sujet](https://biynlearning.academy/hackathon-securescan.html)*# 🛡️ SecureScan
+
+> **Hackathon IPSSI 2026** — Semaine du 2 au 6 mars 2026  
+> Plateforme web d'analyse de sécurité de code, basée sur l'OWASP Top 10 2025.
+
+---
+
+## 📌 Présentation
+
+SecureScan permet d'analyser automatiquement un dépôt de code source à la recherche de failles de sécurité. L'utilisateur entre une URL Git ou uploade un ZIP — la plateforme orchestre plusieurs outils d'analyse open source, agrège les résultats et les présente dans un dashboard exploitable.
+
+**Fonctionnalités clés :**
+- Scan via URL Git ou upload ZIP (max 50 Mo)
+- 4 analyseurs lancés en parallèle (Semgrep, ESLint Security, npm audit, TruffleHog)
+- Score de sécurité /100 + grade A→F
+- Vulnérabilités classées par sévérité et mappées sur l'OWASP Top 10 2025
+- Corrections de code générées par IA (OpenRouter / Gemma 3)
+- Export rapport PDF/HTML
+- Scan anonyme possible — compte optionnel pour accéder au détail
+
+---
+
+## ⚙️ Stack technique
+
+| Couche | Technologie | Pourquoi |
+| --- | --- | --- |
+| Frontend | Next.js 16 + TypeScript + Tailwind CSS | SSR, routing App Router, typage fort |
+| Backend | Node.js + Express | Léger, async natif, adapté aux processus externes |
+| ORM / BDD | Prisma 5 + MySQL 8 | Migrations auto, schéma typé, requêtes simples |
+| Analyseurs | Semgrep, ESLint Security, npm audit, TruffleHog | Open source, multi-langages, JSON output |
+| IA | OpenRouter (Gemma 3 27B — gratuit) | Fix de code on-demand, zéro coût |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Utilisateur                              │
+│               (URL Git ou upload ZIP)                           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ HTTP
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Frontend — Next.js :3000                      │
+│  page.tsx (scan) · dashboard · results · report · login         │
+│  lib/api.ts → appels fetch + JWT Bearer                         │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ REST API /api/*
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Backend — Express :3001                       │
+│                                                                 │
+│  optionalAuth → validate(Zod) → ScanController                  │
+│                                                                 │
+│  ScanController                                                 │
+│    ├── GitService          → git clone --depth 500              │
+│    ├── ScannerService      → Promise.all([...])                 │
+│    │     ├── SemgrepService     semgrep --config auto --json    │
+│    │     ├── EslintService      eslint-plugin-security          │
+│    │     ├── NpmAuditService    npm audit --json                │
+│    │     └── TrufflehogService  trufflehog filesystem --json    │
+│    ├── OwaspService        → mapping résultats → OWASP 2025     │
+│    ├── ScoreService        → calcul score /100 + grade          │
+│    └── AiService           → fix IA on-demand (OpenRouter)      │
+│                                                                 │
+└──────────────┬──────────────────────────────────────────────────┘
+               │ Prisma
+               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   MySQL 8 — Base de données                     │
+│   users · scans · vulnerabilities                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🗃️ Schéma de base de données
+
+```
+┌──────────────┐         ┌─────────────────────────────┐
+│    users     │  1 ─── N│           scans              │
+├──────────────┤         ├─────────────────────────────┤
+│ id           │         │ id                           │
+│ name         │         │ userId (FK, nullable)        │
+│ email        │         │ repoUrl                      │
+│ passwordHash │         │ repoName                     │
+│ githubId     │         │ language                     │
+│ avatarUrl    │         │ status (pending|running|      │
+│ role         │         │         completed|failed)    │
+│ createdAt    │         │ score (0-100)                 │
+└──────────────┘         │ vulnTotal / Critical /        │
+                         │ High / Medium / Low           │
+                         │ secretsCount                  │
+                         │ filesTotal / filesImpacted    │
+                         │ isFavorite                    │
+                         │ createdAt / completedAt       │
+                         └──────────────┬──────────────┘
+                                        │ 1 ─── N
+                         ┌──────────────▼──────────────┐
+                         │      vulnerabilities         │
+                         ├─────────────────────────────┤
+                         │ id                           │
+                         │ scanId (FK)                  │
+                         │ tool (semgrep|eslint|…)      │
+                         │ title                        │
+                         │ severity (critical|high|…)   │
+                         │ owaspCategory (A01:2025…)    │
+                         │ filePath / lineStart / lineEnd│
+                         │ ruleId                       │
+                         │ codeSnippet                  │
+                         │ fixSuggestion (IA, cached)   │
+                         │ cvssScore                    │
+                         │ isFixed                      │
+                         └─────────────────────────────┘
+```
+
+> `userId` est nullable : les scans anonymes sont autorisés. Après connexion, le scan est rattaché via `PATCH /api/scans/:id/claim`.
+
+---
+
+## 🗺️ Mapping OWASP Top 10 2025
+
+Les résultats bruts des analyseurs sont normalisés puis mappés sur l'OWASP Top 10 2025 par `OwaspService` via deux mécanismes :
+
+**1. Remapping OWASP 2021 → 2025** (les catégories ont bougé entre les deux versions) :
+
+| OWASP 2021 | OWASP 2025 |
+| --- | --- |
+| A01 — Broken Access Control | A01 — Broken Access Control *(inchangé)* |
+| A02 — Cryptographic Failures | A04 — Cryptographic Failures |
+| A03 — Injection | A05 — Injection |
+| A04 — Insecure Design | A06 — Insecure Design |
+| A05 — Security Misconfiguration | A02 — Security Misconfiguration *(monte)* |
+| A06 — Vulnerable Components | A03 — Software Supply Chain Failures |
+| A07 — Auth Failures | A07 — Authentication Failures |
+| A08 — Integrity Failures | A08 — Software or Data Integrity Failures |
+| A09 — Logging Failures | A09 — Security Logging & Alerting Failures |
+| A10 — SSRF | A01 — Broken Access Control *(intégré)* |
+
+**2. Matching par regex sur le `ruleId`** pour les résultats sans catégorie explicite :
+
+| Pattern | Catégorie OWASP 2025 |
+| --- | --- |
+| `sqli`, `sql.inject`, `eval-with`, `xss`, `path.travers` | A05 — Injection |
+| `aws`, `api.key`, `github.token`, `private.key`, `md5` | A04 — Cryptographic Failures |
+| `CVE-XXXX`, `npm.audit`, `prototype.pollution` | A03 — Supply Chain |
+| `cors.wildcard`, `helmet`, `xxe`, `debug.enabled` | A02 — Security Misconfiguration |
+| `ssrf`, `open.redirect`, `idor` | A01 — Broken Access Control |
+| `jwt`, `session.fixation`, `hardcode.credential` | A07 — Authentication Failures |
+| *(non reconnu)* | A10 — Mishandling of Exceptional Conditions |
+
+**Score CVSS par défaut** (si l'analyseur ne fournit pas de score) :
+
+| Sévérité | CVSS par défaut |
+| --- | --- |
+| Critical | 9.8 |
+| High | 7.5 |
+| Medium | 5.0 |
+| Low | 3.0 |
+
+---
+
+## 📊 Calcul du score de sécurité
+
+```
+Score = max(0, 100 − Σ pénalités plafonnées)
+```
+
+| Sévérité | Pénalité / vulnérabilité | Plafond par sévérité |
+| --- | --- | --- |
+| Critical | −20 pts | max −40 pts |
+| High | −10 pts | max −40 pts |
+| Medium | −2 pts | max −15 pts |
+| Low | −0.5 pts | max −5 pts |
+
+**Grade :** ≥80 → A · ≥60 → B · ≥40 → C · ≥20 → D · <20 → F
+
+---
+
+## 🚀 Installation et lancement
+
+### Prérequis
+
+- Node.js 20+, npm 10+
+- MySQL 8+
+- Semgrep : `pip install semgrep`
+- TruffleHog : [github.com/trufflesecurity/trufflehog/releases](https://github.com/trufflesecurity/trufflehog/releases)
+
+### Backend
+
+```bash
+cd server
+cp .env.example .env
+# Remplir DATABASE_URL et JWT_SECRET dans .env
+npm install
+npx prisma migrate dev    # Crée les tables MySQL
+node src/seed-demo.js     # Optionnel : 3 scans de démo
+npm run dev               # → http://localhost:3001
+```
+
+### Frontend
+
+```bash
+cd front
+npm install
+npm run dev               # → http://localhost:3000
+```
+
+### Variables d'environnement requises (`server/.env`)
+
+```env
+DATABASE_URL="mysql://root:password@localhost:3306/securescan"
+JWT_SECRET=chaine_aleatoire_longue
+PORT=3001
+
+# Optionnels
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_CALLBACK_URL=http://localhost:3001/api/auth/github/callback
+OPENROUTER_API_KEY=        # Pour les corrections IA
+TMP_SCAN_DIR=./tmp
+```
+
+> Générer `JWT_SECRET` : `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+
+---
+
+## 🎨 Design & Maquettes
+
+> 🔗 **[Projet Figma](https://www.figma.com/design/tk9NicbQPEJ2HZPZHk80Hr/SecureScan)**
+
+Wireframes + UI haute fidélité dark mode disponibles dans [`design/`](./design/).  
+Pages : Connexion · Accueil · Dashboard · Résultats · Rapport
+
+---
+
+## 🌿 Workflow Git
+
+| Branche | Rôle |
+| --- | --- |
+| `main` | Production — merge via PR uniquement |
+| `dev` | Intégration — toutes les features mergent ici |
+
+```bash
+git checkout dev && git pull origin dev
+git checkout -b feature/backend/ma-feature
+git commit -m "feat(backend): description"
+git rebase origin/dev
+git push -u origin feature/backend/ma-feature
+# → PR vers dev, jamais directement sur main
 ```
 
 ---
