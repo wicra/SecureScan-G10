@@ -29,6 +29,7 @@ export async function login(email: string, password: string) {
   // Stocker le token
   localStorage.setItem("securescan_token", data.token);
   localStorage.setItem("securescan_user", JSON.stringify(data.user));
+  localStorage.removeItem("securescan_current_scan"); // Effacer le scan anonyme éventuel
   return data;
 }
 
@@ -42,6 +43,7 @@ export async function register(name: string, email: string, password: string) {
   if (!res.ok) throw new Error(data.error || "Erreur d'inscription");
   localStorage.setItem("securescan_token", data.token);
   localStorage.setItem("securescan_user", JSON.stringify(data.user));
+  localStorage.removeItem("securescan_current_scan"); // Effacer le scan anonyme éventuel
   return data;
 }
 
@@ -57,6 +59,7 @@ export async function getMe() {
 export function logout() {
   localStorage.removeItem("securescan_token");
   localStorage.removeItem("securescan_user");
+  localStorage.removeItem("securescan_current_scan");
 }
 
 export function isLoggedIn(): boolean {
