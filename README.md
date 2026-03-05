@@ -11,8 +11,8 @@ SecureScan est une **plateforme web** qui analyse automatiquement le code d'un d
 
 L'idée est simple :
 
-1. Tu entres l'URL d'un repo Git (ou tu uploades ton code)
-2. La plateforme lance des outils d'analyse en arrière-plan
+1. Tu entres l'URL d'un repo Git
+2. La plateforme clone le repo et lance les outils d'analyse en arrière-plan
 3. Elle affiche un **dashboard clair** avec les vulnérabilités détectées, classées selon l'OWASP Top 10
 4. Elle propose des **corrections automatiques** pour les failles courantes
 5. Elle génère un **rapport PDF/HTML** prêt à être présenté
@@ -25,8 +25,8 @@ L'idée est simple :
 | --- | --- |
 | Frontend | **Next.js** + TypeScript |
 | Backend | **Node.js** (Express) + JavaScript |
-| ORM / BDD | **Prisma** + PostgreSQL |
-| Analyseurs | Semgrep, ESLint Security, npm audit, TruffleHog, Bandit |
+| ORM / BDD | **Prisma** + MySQL |
+| Analyseurs | Semgrep, ESLint, npm audit, TruffleHog, Gitleaks |
 
 > 📦 Frontend et backend sont dans le **même dépôt** (monorepo).
 
@@ -49,11 +49,11 @@ SecureScan/
 │   ├── prisma/              # schema.prisma + migrations
 │   ├── src/
 │   │   ├── config/          # Config BDD, passport…
-│   │   ├── controllers/     # Logique métier
-│   │   ├── middlewares/     # Auth JWT, gestion erreurs
-│   │   ├── models/          # Wrappers Prisma
-│   │   ├── routes/          # Endpoints API
-│   │   ├── services/        # Analyseurs (Semgrep, TruffleHog…)
+│   │   ├── controllers/     # AuthController, ScanController
+│   │   ├── middlewares/     # optionalAuth, ValidateMW, ErrorMW
+│   │   ├── models/          # User, Scan, Vulnerability, Report
+│   │   ├── routes/          # Endpoints API REST
+│   │   ├── services/        # ScannerService, SemgrepService, GitService…
 │   │   ├── utils/           # Fonctions utilitaires
 │   │   ├── index.js         # Démarrage serveur
 │   │   └── seed-demo.js     # Données de démo
@@ -68,29 +68,19 @@ SecureScan/
 
 ---
 
-## 🗃️ Base de données — PostgreSQL via Prisma
+## 🗃️ Base de données — MySQL via Prisma
 
-**3 modèles principaux.** Les résultats d'analyse sont stockés en JSON brut dans `scans` et parsés côté frontend. Seuls les fixes confirmés sont persistés.
+**4 modèles principaux.**
 
 ```
-users
-  id, name, email, password_hash, github_id, avatar_url, role, created_at
-
-scans
-  id, user_id → users
-  repo_url, repo_name, language, analyzers
-  status (pending | running | completed | failed)
-  score, vuln_critical, vuln_high, vuln_medium, vuln_low
-  secrets_count, files_total
-  results_json  ← résultats bruts de tous les analyseurs (JSONB)
-  is_favorite, created_at, completed_at
-
-vuln_fixes
-  id, scan_id → scans
-  rule_id, file_path, line_start, fixed_at
+User         → id, name, email, passwordHash, githubId, avatarUrl, role, createdAt
+Scan         → id, userId, url, repoName, language, status, score,
+               vulnCritical/High/Medium/Low, secretsCount, filesTotal,
+               resultsJson, isFavorite, createdAt, completedAt
+Vulnerability→ id, scanId, ruleId, filePath, lineStart, severity,
+               message, owasp, fix, isFixed, fixedAt
+Report       → id, scanId, htmlContent, pdfPath, createdAt
 ```
-
-> Les rapports PDF/HTML sont **générés à la demande** depuis `results_json`, non stockés en base.
 
 ---
 
@@ -103,15 +93,16 @@ cd SecureScan
 
 # 2. Backend
 cd server
-cp .env.example .env
+cp .env.example .env      # remplir DATABASE_URL, JWT_SECRET…
 npm install
 npx prisma migrate dev
-npm run dev        # → http://localhost:3000
+node src/seed-demo.js     # optionnel : données de démo
+npm run dev               # → http://localhost:3000
 
 # 3. Frontend (autre terminal)
 cd ../front
 npm install
-npm run dev        # → http://localhost:3001
+npm run dev               # → http://localhost:3001
 ```
 
 ---
@@ -120,11 +111,11 @@ npm run dev        # → http://localhost:3001
 
 | Outil | Rôle |
 | --- | --- |
-| **Semgrep** | Analyse statique (SAST), 30+ langages |
-| **ESLint Security** | Détection de patterns dangereux en JS/TS |
+| **Semgrep** | Analyse statique (SAST), remapping OWASP 2021 + score CVSS |
+| **ESLint** | Détection de patterns dangereux en JS/TS |
 | **npm audit** | Audit des dépendances Node.js |
-| **TruffleHog** | Détection de secrets dans l'historique Git |
-| **Bandit** | Analyse de sécurité Python |
+| **TruffleHog** | Détection de secrets dans les fichiers |
+| **Gitleaks** | Détection de secrets dans l'historique Git |
 
 ---
 
