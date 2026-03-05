@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Zap, Lock, FolderOpen, CheckCircle, Check, ArrowRight, Circle, UploadCloud, X } from "lucide-react";
 import JSZip from "jszip";
 import { Sidebar } from "@/components/Sidebar";
-import { createScan, uploadScanFile, isLoggedIn } from "@/lib/api";
+import { createScan, uploadScanFile, isLoggedIn, setCurrentScanId } from "@/lib/api";
 
 // ─── Labels des étapes de progression ───────────────────────────────────────
 const stepLabels = [
@@ -99,10 +99,6 @@ export default function ScanPage() {
   const [currentStep, setCurrentStep]   = useState(0);
   const [progress, setProgress]         = useState(0);
   const [scanError, setScanError]       = useState("");
-
-  useEffect(() => {
-    if (!isLoggedIn()) router.push("/login");
-  }, [router]);
 
   // ─── Drag-and-drop handlers ────────────────────────────────────────────────
 
@@ -214,7 +210,13 @@ export default function ScanPage() {
       setCurrentStep(steps.length);
       setProgress(100);
       setTimeout(() => {
-        router.push(`/dashboard?scanId=${result.scanId}`);
+        if (isLoggedIn()) {
+          router.push(`/dashboard?scanId=${result.scanId}`);
+        } else {
+          // Scan anonyme : stocker l'ID pour rattachement à la connexion
+          if (result.scanId) setCurrentScanId(result.scanId);
+          router.push("/");
+        }
       }, 800);
     } catch (err: unknown) {
       clearInterval(interval);
@@ -339,7 +341,7 @@ export default function ScanPage() {
                       </>
                   }
                 </div>
-                <div className="text-xs text-(--color-text3)">ZIP · Dossier entier — Max 50 Mo</div>
+                <div className="text-xs text-(--color-text3)">ZIP · Dossier entier — Max 1 Go</div>
 
                 {/* Bouton dossier séparé */}
                 <button
