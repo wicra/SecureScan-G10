@@ -1,4 +1,4 @@
-# 📘 README-dev — SecureScan
+# 📘 Documentation_Technique — SecureScan
 
 > Documentation technique interne — Hackathon IPSSI 2026
 
@@ -8,9 +8,30 @@
 
 ```
 SecureScan/
-├── front/          # React + Vite + TypeScript
-├── server/         # Node.js + Express + TypeScript
-├── design/         # Maquettes / assets
+├── front/                   # Next.js + TypeScript
+│   ├── public/
+│   ├── src/
+│   ├── next.config.ts
+│   ├── eslint.config.mjs
+│   ├── postcss.config.mjs
+│   └── tsconfig.json
+│
+├── server/                  # Node.js + Express + Prisma
+│   ├── prisma/              # schema.prisma + migrations
+│   ├── src/
+│   │   ├── config/          # Config BDD, passport, etc.
+│   │   ├── controllers/     # Logique métier par ressource
+│   │   ├── middlewares/     # Auth JWT, gestion erreurs, etc.
+│   │   ├── models/          # Modèles (wrappers Prisma)
+│   │   ├── routes/          # Déclaration des endpoints
+│   │   ├── services/        # Intégration analyseurs (Semgrep, TruffleHog…)
+│   │   ├── utils/           # Fonctions utilitaires
+│   │   ├── index.js         # Démarrage du serveur
+│   │   └── seed-demo.js     # Données de démo
+│   ├── app.js               # Config Express (middlewares globaux)
+│   └── .env.example
+│
+├── design/                  # Maquettes Figma (wireframes + couleur)
 ├── .gitignore
 ├── README.md
 └── README-dev.md
@@ -26,85 +47,92 @@ SecureScan/
 - PostgreSQL 15+
 - npm 10+
 
-### Installation
+### Backend
 
 ```bash
-# Frontend
-cd front
-npm install
-npm run dev        # → http://localhost:5173
-
-# Backend
 cd server
+cp .env.example .env    # remplir les variables
 npm install
-npm run dev        # → http://localhost:3000
+npx prisma migrate dev  # crée les tables en BDD
+npm run dev             # → http://localhost:3000
 ```
 
-### Variables d'environnement — `server/.env`
+### Frontend
+
+```bash
+cd front
+npm install
+npm run dev             # → http://localhost:3001
+```
+
+---
+
+## 🔧 Variables d'environnement — `server/.env`
 
 ```env
-PORT=3000
-DATABASE_URL=postgresql://user:password@localhost:5432/securescan
+DATABASE_URL="postgresql://user:password@localhost:5432/securescan"
 JWT_SECRET=ton_secret_jwt
+PORT=3000
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 ```
 
 ---
 
-## 🗃️ Base de données
+## 🗃️ Base de données — Prisma + PostgreSQL
 
-### Connexion
+Le schéma Prisma est dans `server/prisma/schema.prisma`.
 
-```bash
-psql -U postgres
-CREATE DATABASE securescan;
+**3 modèles :**
+
+```prisma
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String?
+  email        String   @unique
+  passwordHash String?
+  githubId     String?
+  avatarUrl    String?
+  role         String   @default("analyste")  // analyste | admin
+  createdAt    DateTime @default(now())
+  scans        Scan[]
+}
+
+model Scan {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id])
+  repoUrl      String
+  repoName     String?
+  language     String?
+  analyzers    String[]
+  status       String    @default("pending")  // pending | running | completed | failed
+  score        Int?
+  vulnCritical Int       @default(0)
+  vulnHigh     Int       @default(0)
+  vulnMedium   Int       @default(0)
+  vulnLow      Int       @default(0)
+  secretsCount Int       @default(0)
+  filesTotal   Int       @default(0)
+  resultsJson  Json?
+  isFavorite   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+  fixes        VulnFix[]
+}
+
+model VulnFix {
+  id        Int      @id @default(autoincrement())
+  scanId    Int
+  scan      Scan     @relation(fields: [scanId], references: [id])
+  ruleId    String
+  filePath  String
+  lineStart Int
+  fixedAt   DateTime @default(now())
+}
 ```
 
-### Migration (à la main pour l'instant)
-
-```sql
-CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100),
-  email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash TEXT,
-  github_id VARCHAR(100),
-  avatar_url TEXT,
-  role VARCHAR(20) DEFAULT 'analyste',
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE scans (
-  id SERIAL PRIMARY KEY,
-  user_id INT REFERENCES users(id),
-  repo_url TEXT NOT NULL,
-  repo_name VARCHAR(255),
-  language VARCHAR(50),
-  analyzers TEXT[],
-  status VARCHAR(20) DEFAULT 'pending',
-  score INT,
-  vuln_critical INT DEFAULT 0,
-  vuln_high INT DEFAULT 0,
-  vuln_medium INT DEFAULT 0,
-  vuln_low INT DEFAULT 0,
-  secrets_count INT DEFAULT 0,
-  files_total INT DEFAULT 0,
-  results_json JSONB,
-  is_favorite BOOLEAN DEFAULT false,
-  created_at TIMESTAMP DEFAULT NOW(),
-  completed_at TIMESTAMP
-);
-
-CREATE TABLE vuln_fixes (
-  id SERIAL PRIMARY KEY,
-  scan_id INT REFERENCES scans(id),
-  rule_id VARCHAR(255),
-  file_path TEXT,
-  line_start INT,
-  fixed_at TIMESTAMP DEFAULT NOW()
-);
-```
+> `resultsJson` stocke les résultats bruts de tous les analyseurs — le frontend filtre et affiche en mémoire.
 
 ---
 
@@ -126,15 +154,15 @@ CREATE TABLE vuln_fixes (
 | POST | `/api/scans` | Lancer un nouveau scan |
 | GET | `/api/scans` | Liste des scans de l'utilisateur |
 | GET | `/api/scans/:id` | Détail d'un scan |
-| PATCH | `/api/scans/:id/favorite` | Toggle favori |
+| PATCH | `/api/scans/:id/favorite` | Toggle favori ⭐ |
 | DELETE | `/api/scans/:id` | Supprimer un scan |
 
-### Vulnérabilités
+### Vulnérabilités & Fixes
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/api/scans/:id/vulns` | Liste des vulnérabilités du scan |
-| POST | `/api/scans/:id/fixes` | Appliquer un fix |
+| GET | `/api/scans/:id/vulns` | Liste des vulnérabilités |
+| POST | `/api/scans/:id/fixes` | Enregistrer un fix appliqué |
 
 ### Rapports
 
@@ -153,11 +181,11 @@ CREATE TABLE vuln_fixes (
 semgrep --config=auto --json <chemin_repo>
 ```
 
-Parsing de la sortie JSON → extraction `results[]` avec `check_id`, `path`, `start.line`, `severity`, `message`.
+Extraction de `results[]` → `check_id`, `path`, `start.line`, `severity`, `message`.
 
 ### ESLint Security
 
-Plugin `eslint-plugin-security` — config `.eslintrc` fournie dans `server/services/`.
+Plugin `eslint-plugin-security` lancé programmatiquement sur les fichiers JS/TS du repo cloné.
 
 ### npm audit
 
@@ -165,7 +193,7 @@ Plugin `eslint-plugin-security` — config `.eslintrc` fournie dans `server/serv
 npm audit --json
 ```
 
-Champ `vulnerabilities` → on extrait `severity`, `name`, `via`.
+Extraction de `vulnerabilities` → `severity`, `name`, `via`.
 
 ### TruffleHog
 
@@ -181,45 +209,54 @@ Détection de secrets dans les fichiers et l'historique Git.
 bandit -r <chemin_repo> -f json
 ```
 
-Utilisé uniquement si des fichiers `.py` sont détectés dans le repo scanné.
+Utilisé uniquement si des `.py` sont détectés dans le repo scanné.
 
 ---
 
-## 🧱 Architecture frontend (React + TypeScript)
+## 🧱 Architecture frontend — Next.js + TypeScript
 
 ```
 front/src/
+├── app/                     # App Router Next.js (pages et layouts)
+│   ├── layout.tsx
+│   ├── page.tsx             # Accueil / formulaire de scan
+│   ├── dashboard/
+│   ├── results/
+│   ├── report/
+│   └── auth/
 ├── components/
-│   ├── layout/          # Sidebar, Navbar, Layout wrapper
-│   ├── scan/            # ScanForm, ScanCard, ScanStatus
-│   ├── vulns/           # VulnList, VulnDetail, SeverityBadge
-│   └── charts/          # ScoreGauge, OwaspChart, SeverityPie
-├── pages/
-│   ├── Home.tsx          # Formulaire de scan + historique
-│   ├── Dashboard.tsx     # Vue d'ensemble d'un scan
-│   ├── Vulnerabilities.tsx
-│   ├── Secrets.tsx
-│   ├── Report.tsx
-│   └── Login.tsx
+│   ├── layout/              # Sidebar, Navbar
+│   ├── scan/                # ScanForm, ScanCard, ScanStatus
+│   ├── vulns/               # VulnList, VulnDetail, SeverityBadge
+│   └── charts/              # ScoreGauge, OwaspChart
 ├── services/
-│   ├── api.ts            # Axios instance + interceptors JWT
+│   ├── api.ts               # Fetch/Axios + interceptors JWT
 │   ├── scans.ts
 │   └── auth.ts
-├── hooks/
-│   ├── useAuth.ts
-│   └── useScan.ts
-├── types/
-│   └── index.ts          # Interfaces TypeScript
-└── App.tsx
+└── types/
+    └── index.ts
 ```
 
 ---
 
 ## 🔐 Authentification
 
-- JWT stocké en `localStorage`
-- Axios interceptor ajoute le header `Authorization: Bearer <token>` automatiquement
-- OAuth GitHub → `passport-github2` côté serveur
+- JWT stocké côté client
+- Header `Authorization: Bearer <token>` sur chaque requête API
+- OAuth GitHub via `passport-github2` côté serveur (`app.js`)
+
+---
+
+## 🎨 Design
+
+> 🔗 [Figma](https://www.figma.com/design/tk9NicbQPEJ2HZPZHk80Hr/SecureScan)
+
+Pages maquettées (wireframe + couleur dark mode) :
+- Connexion
+- Accueil (formulaire scan)
+- Dashboard connecté / non connecté
+- Résultats
+- Rapport
 
 ---
 
@@ -227,22 +264,18 @@ front/src/
 
 ### Commits
 
-Format : `type(scope): message`
+```
+feat(backend): add semgrep runner
+fix(frontend): correct scan status polling
+chore(db): update prisma schema
+```
 
 | Type | Usage |
 |---|---|
 | `feat` | Nouvelle fonctionnalité |
 | `fix` | Correction de bug |
 | `chore` | Config, deps, docs |
-| `refactor` | Refacto sans changement fonctionnel |
-| `style` | CSS / formatting |
-
-Exemples :
-```
-feat(backend): add semgrep runner service
-fix(frontend): correct scan status polling
-chore(db): add vuln_fixes migration
-```
+| `refactor` | Refacto sans impact fonctionnel |
 
 ### Branches
 
@@ -260,17 +293,17 @@ chore/<nom>
 |---|---|
 | Dev Backend A | Auth, scan controller, API REST |
 | Dev Backend B | Intégration analyseurs, jobs async, rapport |
-| Dev Frontend | Toutes les pages React, composants, appels API |
+| Dev Frontend | Pages Next.js, composants, appels API |
 
 ---
 
 ## 🚨 Points de vigilance
 
-- **Ne jamais commit de secrets** (`.env` dans `.gitignore`)
+- **Ne jamais commit le `.env`** (déjà dans `.gitignore`)
 - **Toujours rebase sur `dev`** avant d'ouvrir une PR
 - **Ne jamais pousser directement sur `main`**
-- Les scans sont potentiellement longs → prévoir un **polling** côté frontend sur le statut (`pending` → `running` → `completed`)
-- Le clonage de repo Git côté serveur = **surface d'attaque** → sandbox / timeout obligatoire
+- Les scans sont longs → **polling** côté frontend sur le statut (`pending` → `running` → `completed`)
+- Le clonage de repo côté serveur est une surface d'attaque → sandbox + timeout obligatoire
 
 ---
 
@@ -278,7 +311,7 @@ chore/<nom>
 
 | Version | Date | Notes |
 |---|---|---|
-| v1.1.0 | 04/03/2026 | Dernière release — voir [GitHub Releases](https://github.com/wicra/SecureScan/releases) |
+| v1.1.0 | 04/03/2026 | [GitHub Releases](https://github.com/wicra/SecureScan/releases/tag/v1.1.0) |
 | v1.0.0 | 02/03/2026 | Release initiale |
 
 ---
