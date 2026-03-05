@@ -1,7 +1,7 @@
 # 🛡️ SecureScan
 
 > **Hackathon IPSSI 2026** — Semaine du 2 au 6 mars 2026  
-> Plateforme web d'analyse de sécurité de code, basée sur l'OWASP Top 10.
+> Plateforme web d'analyse de qualité & sécurité de code, basée sur l'OWASP Top 10.
 
 ---
 
@@ -22,13 +22,13 @@ L'idée est simple :
 ## ⚙️ Stack technique
 
 | Couche | Technologie |
-|---|---|
-| Frontend | **React** (Vite) + TypeScript |
-| Backend | **Node.js** (Express) + TypeScript |
-| Base de données | **PostgreSQL** |
+| --- | --- |
+| Frontend | **Next.js** + TypeScript |
+| Backend | **Node.js** (Express) + JavaScript |
+| ORM / BDD | **Prisma** + PostgreSQL |
 | Analyseurs | Semgrep, ESLint Security, npm audit, TruffleHog, Bandit |
 
-> 📦 Le frontend et le backend sont dans le **même dépôt** (monorepo).
+> 📦 Frontend et backend sont dans le **même dépôt** (monorepo).
 
 ---
 
@@ -37,86 +37,57 @@ L'idée est simple :
 ```
 SecureScan/
 │
-├── front/                   # 🎨 Frontend React + TypeScript
-│   └── src/
-│       ├── components/      # Composants réutilisables
-│       ├── pages/           # Dashboard, Scan, Rapport…
-│       ├── services/        # Appels API vers le backend
-│       └── App.tsx
+├── front/                   # 🎨 Frontend Next.js + TypeScript
+│   ├── public/
+│   ├── src/
+│   ├── next.config.ts
+│   ├── eslint.config.mjs
+│   ├── postcss.config.mjs
+│   └── tsconfig.json
 │
-├── server/                  # 🔧 Backend Node.js / Express + TypeScript
-│   ├── routes/              # Endpoints API REST
-│   ├── controllers/         # Logique métier
-│   ├── services/            # Intégration des analyseurs
-│   │   ├── semgrep.ts
-│   │   ├── eslint.ts
-│   │   ├── npmAudit.ts
-│   │   └── trufflehog.ts
-│   ├── models/              # Modèles BDD
-│   └── index.ts
+├── server/                  # 🔧 Backend Node.js / Express
+│   ├── prisma/              # schema.prisma + migrations
+│   ├── src/
+│   │   ├── config/          # Config BDD, passport…
+│   │   ├── controllers/     # Logique métier
+│   │   ├── middlewares/     # Auth JWT, gestion erreurs
+│   │   ├── models/          # Wrappers Prisma
+│   │   ├── routes/          # Endpoints API
+│   │   ├── services/        # Analyseurs (Semgrep, TruffleHog…)
+│   │   ├── utils/           # Fonctions utilitaires
+│   │   ├── index.js         # Démarrage serveur
+│   │   └── seed-demo.js     # Données de démo
+│   ├── app.js               # Config Express
+│   └── .env.example
 │
-├── design/                  # 🎨 Maquettes et assets design
+├── design/                  # 🎨 Maquettes wireframes + couleur
 ├── .gitignore
-├── README-dev.md            # Documentation technique détaillée
+├── README-dev.md
 └── README.md
 ```
 
 ---
 
-## 🗃️ Base de données — PostgreSQL (schéma minimal)
+## 🗃️ Base de données — PostgreSQL via Prisma
 
-**3 tables seulement.** Les résultats d'analyse sont stockés en JSON brut dans `scans` et parsés côté React — pas besoin d'une table par vulnérabilité.
+**3 modèles principaux.** Les résultats d'analyse sont stockés en JSON brut dans `scans` et parsés côté frontend. Seuls les fixes confirmés sont persistés.
 
 ```
-┌──────────────────────────┐
-│          users           │  ← Login / sidebar avatar
-├──────────────────────────┤
-│ id            SERIAL     │
-│ name          VARCHAR    │
-│ email         VARCHAR    │
-│ password_hash TEXT       │  bcrypt
-│ github_id     VARCHAR    │  OAuth GitHub
-│ avatar_url    TEXT       │
-│ role          VARCHAR    │  'analyste' | 'admin'
-│ created_at    TIMESTAMP  │
-└────────────┬─────────────┘
-             │ 1
-             ▼ N
-┌──────────────────────────────────────────────────────┐
-│                        scans                         │
-├──────────────────────────────────────────────────────┤
-│ id              SERIAL                               │
-│ user_id         FK → users                           │
-│ repo_url        TEXT                                 │
-│ repo_name       VARCHAR                              │
-│ language        VARCHAR                              │
-│ analyzers       TEXT[]                               │
-│ status          VARCHAR   'pending'|'running'|       │
-│                           'completed'|'failed'       │
-│ score           INT       (score /100)               │
-│ vuln_critical   INT                                  │
-│ vuln_high       INT                                  │
-│ vuln_medium     INT                                  │
-│ vuln_low        INT                                  │
-│ secrets_count   INT                                  │
-│ files_total     INT                                  │
-│ results_json    JSONB     résultats bruts analyseurs │
-│ is_favorite     BOOLEAN                              │
-│ created_at      TIMESTAMP                            │
-│ completed_at    TIMESTAMP                            │
-└───────────────────────┬──────────────────────────────┘
-                        │ 1
-                        ▼ N
-┌──────────────────────────────────────────────────────┐
-│                    vuln_fixes                        │
-├──────────────────────────────────────────────────────┤
-│ id          SERIAL                                   │
-│ scan_id     FK → scans                               │
-│ rule_id     VARCHAR                                  │
-│ file_path   TEXT                                     │
-│ line_start  INT                                      │
-│ fixed_at    TIMESTAMP                                │
-└──────────────────────────────────────────────────────┘
+users
+  id, name, email, password_hash, github_id, avatar_url, role, created_at
+
+scans
+  id, user_id → users
+  repo_url, repo_name, language, analyzers
+  status (pending | running | completed | failed)
+  score, vuln_critical, vuln_high, vuln_medium, vuln_low
+  secrets_count, files_total
+  results_json  ← résultats bruts de tous les analyseurs (JSONB)
+  is_favorite, created_at, completed_at
+
+vuln_fixes
+  id, scan_id → scans
+  rule_id, file_path, line_start, fixed_at
 ```
 
 > Les rapports PDF/HTML sont **générés à la demande** depuis `results_json`, non stockés en base.
@@ -130,19 +101,17 @@ SecureScan/
 git clone https://github.com/wicra/SecureScan.git
 cd SecureScan
 
-# 2. Installer les dépendances
-cd front && npm install
-cd ../server && npm install
-
-# 3. Configurer les variables d'environnement
+# 2. Backend
+cd server
 cp .env.example .env
+npm install
+npx prisma migrate dev
+npm run dev        # → http://localhost:3000
 
-# 4. Lancer en développement
-# Terminal 1 — backend
-cd server && npm run dev
-
-# Terminal 2 — frontend
-cd front && npm run dev
+# 3. Frontend (autre terminal)
+cd ../front
+npm install
+npm run dev        # → http://localhost:3001
 ```
 
 ---
@@ -150,7 +119,7 @@ cd front && npm run dev
 ## 🔍 Analyseurs intégrés
 
 | Outil | Rôle |
-|---|---|
+| --- | --- |
 | **Semgrep** | Analyse statique (SAST), 30+ langages |
 | **ESLint Security** | Détection de patterns dangereux en JS/TS |
 | **npm audit** | Audit des dépendances Node.js |
@@ -159,10 +128,19 @@ cd front && npm run dev
 
 ---
 
+## 🎨 Design
+
+> 🔗 **[Accéder au projet Figma](https://www.figma.com/design/tk9NicbQPEJ2HZPZHk80Hr/SecureScan)**
+
+Pages maquettées : Connexion, Accueil, Dashboard (connecté / non connecté), Résultats, Rapport.  
+Wireframes + UI haute fidélité dark mode disponibles dans [`design/`](./design/).
+
+---
+
 ## 📊 Critères d'évaluation
 
 | Critère | Poids |
-|---|---|
+| --- | --- |
 | Technique | 40 % |
 | Sécurité OWASP | 25 % |
 | UX & Rendu | 20 % |
@@ -170,39 +148,37 @@ cd front && npm run dev
 
 ---
 
-## 🌿 Gestion du travail — Stratégie Git
+## 🌿 Stratégie Git
 
 ### Branches principales
 
 | Branche | Rôle |
-|---|---|
-| `main` | 🚀 **Production** — code stable, prêt à présenter. Merge uniquement via PR approuvée. |
-| `dev` | 🔧 **Développement** — branche d'intégration commune. Toutes les features mergent ici avant `main`. |
+| --- | --- |
+| `main` | 🚀 Production — stable, prêt à présenter. Merge via PR uniquement. |
+| `dev` | 🔧 Développement — intégration commune. Toutes les features mergent ici. |
 
 > **Règle d'or :** on ne pousse **jamais** directement sur `main`.
 
-### Branches de fonctionnalité
+### Convention de branches
 
 ```
-feature/backend/<nom-court>
-feature/frontend/<nom-court>
-fix/backend/<nom-court>
-fix/frontend/<nom-court>
-chore/<nom-court>
+feature/backend/<nom>
+feature/frontend/<nom>
+fix/backend/<nom>
+fix/frontend/<nom>
+chore/<nom>
 ```
 
-### Workflow au quotidien
+### Workflow quotidien
 
 ```bash
 git checkout dev && git pull origin dev
 git checkout -b feature/backend/ma-feature
 
-# ... coder ...
-
 git add . && git commit -m "feat(backend): description"
 git rebase origin/dev
 git push -u origin feature/backend/ma-feature
-# → ouvrir PR vers dev
+# → PR vers dev
 ```
 
 ---
