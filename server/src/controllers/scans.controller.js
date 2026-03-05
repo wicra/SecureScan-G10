@@ -222,6 +222,11 @@ const claimScan = async (req, res, next) => {
 
     await ScanModel.claimScan(scanId, req.user.id);
     res.json({ message: "Scan rattaché à votre compte.", scanId });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // POST /api/scans/upload — Scanner un fichier ZIP uploadé (drag-and-drop)
 const uploadScan = async (req, res, next) => {
   let extractedPath = null;
